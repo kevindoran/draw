@@ -1,0 +1,11 @@
+#!/bin/bash
+
+docker run -it \
+-u $(id -u):$(id -g) \
+--gpus all \
+--name cv \
+-v /home/k/projects/cv/cv/data:/app/data \
+-v /home/k/projects/cv/cv/out:/app/out \
+-p 0.0.0.0:6006:6006 \
+cv \
+./run.sh
