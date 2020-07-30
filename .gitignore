@@ -1,0 +1,9 @@
+data
+mitsuba2
+mymitsuba2
+out
+tf-gqn
+draw
+*.swp
+*.swo
+*.pyc
