@@ -5,13 +5,14 @@ import random
 import math
 
 # https://coolors.co/227c9d-17c3b2-ffcb77-fef9ef-fe6d73
-_colors = {'blue':   [0x22, 0x7c, 0x9d], 
-           'green':  [0x17, 0xc3, 0xb2],
-           'yellow': [0xff, 0xcb, 0x77],
-           'red':    [0xfe, 0x6d, 0x73]}
+# Note: OpenCV represents colors in BGR format (not RGB).
+_colors = {'blue':   [0x9d, 0x7c, 0x22], 
+           'green':  [0xb2, 0xc3, 0x17],
+           'yellow': [0x77, 0xcb, 0xff],
+           'red':    [0x73, 0x6d, 0xfe]}
 
 def _draw_circle(img, center, diameter, color):
-    # thickness=-1 results in filling the shape 
+    # thickness=-1 results in filling the shape.
     cv.circle(img, tuple(center), diameter//2, color, thickness=-1, lineType=cv.LINE_AA)
 
 
