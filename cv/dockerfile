@@ -1,4 +1,5 @@
-FROM tensorflow/tensorflow:2.3.0-gpu
+#FROM tensorflow/tensorflow:2.3.0-gpu
+FROM tensorflow/tensorflow:1.15.2-gpu
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
@@ -8,6 +9,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* 
     
-RUN pip install opencv-python
 WORKDIR /app
+
+# RUN pip install opencv-python
+COPY requirements.txt ./requirements.txt
+RUN pip install -r requirements.txt
+
 COPY --chown=1000 ./ ./
