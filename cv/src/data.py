@@ -19,7 +19,6 @@ def _draw_circle(img, center, diameter, color):
 def _draw_square(img, center, length, color):
     top_left = (center[0] - length//2, center[1] - length//2)
     bottom_right = (center[0] + length//2, center[1] + length//2)
-    print(f'{top_left}, {bottom_right}')
     cv.rectangle(img, top_left, bottom_right, color, thickness=-1, lineType=cv.LINE_AA)
 
 
@@ -52,7 +51,9 @@ def _draw_shape(img):
 
 
 def _shape_generator(num_samples, img_shape, seed=None):
-    for n in range(num_samples):
+    i = 0
+    infinite = num_samples is None
+    while infinite or i < num_samples:
         color_dim_len = 3
         # 1s or 255?
         init_color = 255
@@ -63,21 +64,45 @@ def _shape_generator(num_samples, img_shape, seed=None):
         for s in range(num_shapes):
             _draw_shape(img)
         yield img
+        i += 1
+
+
+def _black_white_shape_generator(num_samples, img_shape, seed=None):
+    shape_gen = _shape_generator(num_samples, img_shape, seed)
+    i = 0
+    infinite = num_samples is None
+    while infinite or i < num_samples:
+        color_img = next(shape_gen)
+        grey_img = cv.cvtColor(color_img, cv.COLOR_BGR2GRAY)
+        threshold = 250
+        (_, bw_img) = cv.threshold(grey_img, threshold, 255, cv.THRESH_BINARY)
+        yield bw_img
+        i += 1
 
 
 class ShapeDataset1(tf.data.Dataset):
 
-    def __new__(cls, num_samples=10, img_shape=[64, 64]):
+    def __new__(cls, num_samples=None, img_shape=[64, 64]):
         return tf.data.Dataset.from_generator(
             _shape_generator,
             output_types=tf.dtypes.uint8,
             output_shapes=(*img_shape, 3),
             args=(num_samples, img_shape))
 
+class BlackWhiteShapeDataset1(tf.data.Dataset):
+
+    def __new__(cls, num_samples=None, img_shape=[64, 64]):
+
+        return tf.data.Dataset.from_generator(
+            lambda :_black_white_shape_generator(num_samples, img_shape),
+            output_types=tf.dtypes.uint8,
+            output_shapes=img_shape)
+
 
 if __name__ == "__main__":
     print("Writing images...")
-    for idx, sample in enumerate(_shape_generator(10, (64, 64))):
+    # for idx, sample in enumerate(_shape_generator(10, (64, 64))):
+    for idx, sample in enumerate(_black_white_shape_generator(10, (64, 64))):
         cv.imwrite(f'{str(idx)}.png', sample)
     print("Done")
         
