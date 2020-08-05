@@ -1,3 +1,3 @@
 #!/bin/bash
-cd out
-python ../src/data.py
+# python ./src/data.py
+python ./src/draw.py
