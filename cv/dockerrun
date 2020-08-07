@@ -1,5 +1,6 @@
 #!/bin/bash
-
+docker rm cv
+docker build -t cv ./
 docker run -it \
 -u $(id -u):$(id -g) \
 --gpus all \
@@ -8,4 +9,4 @@ docker run -it \
 -v /home/k/projects/cv/cv/out:/app/out \
 -p 0.0.0.0:6006:6006 \
 cv \
-./run.sh
+$1

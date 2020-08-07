@@ -1,8 +1,8 @@
 import setuptools
 
 setuptools.setup(
-    name='project1',
-    packages=['project1'],
+    name='draw',
+    packages=['draw'],
     # This sets the directory, src, to be the root package (denoted by '').                    
-    package_dir={'', 'src'}
+    package_dir={'': 'src'}
 )
