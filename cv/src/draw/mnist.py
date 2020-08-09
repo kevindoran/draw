@@ -16,14 +16,15 @@ EVAL_SPLIT = 'train[80%:100%]'
 def mnist_ds(split, batch_size):
     def normalize_and_shape(img, label):
         # TODO: decide if the model or ds is to do this.
-        # img = tf.cast(img, tf.float32) / 255.0
+        img = tf.cast(img, tf.float32) / 255.0
+        # img = tf.cast(img, tf.float32) 
         # Make 2D from 1D.
         img = tf.reshape(img, [28, 28])
         return (img, label)
 
     ds = tfds.load('mnist', split=split, shuffle_files=True,
             data_dir='./data/mnist', as_supervised=True)
-    #ds = ds.map( lambda img, label: (tf.cast(img, tf.float32) / 255., label),       
+    # ds = ds.map( lambda img, label: (tf.cast(img, tf.float32) / 255., label),       
     ds = ds.map(normalize_and_shape, 
             num_parallel_calls=tf.data.experimental.AUTOTUNE)
     

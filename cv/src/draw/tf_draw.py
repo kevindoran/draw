@@ -6,12 +6,16 @@ import math
 import draw.mnist
 import pathlib
 
+
 CHECKPOINT_PATH = './out/models/tf_draw/'
 BATCH_SIZE = 128
 
+
 def model(x_in, enc_size, dec_size, z_size, num_loops, batch_size):
-    x_in = x_in * 1/255
-    x_in = tf.cast(x_in, tf.float32)
+    # Expect the input processing to do this.
+    # x_in = x_in * 1/255
+    # x_in = tf.cast(x_in, tf.float32)
+
     #x_in = tf.placeholder(tf.float32,shape=(batch_size,img_shape)) 
     assert len(x_in.shape) == 3, "Expecting (batch, height, width)."
     # Flatten the input to be 1D
@@ -152,15 +156,18 @@ def train():
         saver.save(sess, CHECKPOINT_PATH, global_step=t)
 
 
+def restore_weights(sess):
+    saver = tf.train.Saver()
+    saver.restore(sess, tf.train.latest_checkpoint(CHECKPOINT_PATH))
+
+
 def generate(input_ds):
     iterator = tf.compat.v1.data.make_one_shot_iterator(input_ds)
     img_input = iterator.get_next()[0]
     x_in = img_input
     img_out, loss = create_model(x_in)
     with tf.Session() as sess:
-        saver = tf.train.Saver()
-        saver.restore(sess, tf.train.latest_checkpoint(CHECKPOINT_PATH))
-        import pdb; pdb.set_trace();
+        restore_weights(sess)
         img_in_val, img_out_val = sess.run([img_input, img_out])
 
 
