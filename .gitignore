@@ -1,9 +1,11 @@
-data
-mitsuba2
-mymitsuba2
-out
-tf-gqn
-draw
+/data
+/mitsuba2
+/mymitsuba2
+/draw
+/cv/out
+/cv/data
+/out
+/tf-gqn
 *.swp
 *.swo
 *.pyc
