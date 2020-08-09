@@ -73,40 +73,49 @@ class Gru:
 
 class Draw:
 
-    def __init__(img_shape, encode_hidden_len, latent_len, decode_hidden_len):
+    def __init__(self, img_shape, encode_hidden_len, latent_len, 
+            decode_hidden_len):
         """Construct a Draw network.
 
         Args:
             img_shape (np.narray): shape of the input and generated images.
         """
         input_len = np.prod(img_shape)
-        self.enc_rnn = Gru(input_len, encode_hidden_len)
+        enc_input_len = input_len * 2
+        self.enc_rnn = Gru(enc_input_len, encode_hidden_len)
         self.dec_rnn = Gru(latent_len, encode_hidden_len)
         # Optional: move the Gru hidden state vector into Gru class.
         #   * pros: encapsulate details relevant to GRU.
         #   * cons: slightly obscures how the network works.
         self.enc_h = np.random.randn(encode_hidden_len)
         self.dec_h = np.random.randn(decode_hidden_len)
+        # Python 3 supports unicode variable names!
+        self.W_μ = np.random.randn(latent_len, decode_hidden_len)
+        self.b_μ = np.random.randn(latent_len)
+        self.W_σ = np.random.randn(latent_len, decode_hidden_len)
+        self.b_σ = np.random.randn(latent_len)
+        self.W_write = np.random.randn(latent_len, input_len)
+        self.b_write = np.random.randn(input_len)
 
-    def _sample():
-        # TODO
-        # raise NotImplementedError()
-        return np.random.randn(latent_len)
+    def _sample(self):
+        μ = self.W_μ.dot(self.enc_h) + self.b_μ
+        log_σ = self.W_σ.dot(self.enc_h) + self.b_σ
+        σ = np.exp(log_σ)
+        e = np.random.standard_normal()
+        return (μ + σ*e)
 
-    def _write(img):
-        raise NotImplementedError()
+    def _write(self, img):
+        return img + self.W_write.dot(self.dec_h) + self.b_write
 
-    def forward(img_in, out_img, h_enc, h_dec):
+    def forward(self, img_in, out_img, h_enc, h_dec):
         """Forward run of the draw network."""
-        # Switching to variable names that match the DRAW network diagram.
-        x = img_in
-        x_hat = img_out
-
-        xx_hat = np.concatenate(x, h_hat)
+        # If using a prefix batch dimension, then use
+        # xx_hat = np.concatenate(1, img_in, out_img)
+        xx_hat = np.concatenate([img_in, out_img])
         self.h_enc = self.enc_rnn.forward(xx_hat, self.enc_h)
-        z = self.sample()
-        self.h_dec = self.dec_rnn.forward(z, self.h_dec)
-        img_out = self.write(out_img)
+        z = self._sample()
+        self.dec_h = self.dec_rnn.forward(z, self.dec_h)
+        img_out = self._write(out_img)
         return img_out
 
 
