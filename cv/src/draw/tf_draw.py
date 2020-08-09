@@ -15,6 +15,8 @@ def model(x_in, enc_size, dec_size, z_size, num_loops, batch_size):
     # Expect the input processing to do this.
     # x_in = x_in * 1/255
     # x_in = tf.cast(x_in, tf.float32)
+    # x_in should be a tensor of shape [batch size, 28*28] filled with 
+    # floats between 0 and 1.
 
     #x_in = tf.placeholder(tf.float32,shape=(batch_size,img_shape)) 
     assert len(x_in.shape) == 3, "Expecting (batch, height, width)."
@@ -157,6 +159,7 @@ def train():
 
 
 def restore_weights(sess):
+    # From: https://cv-tricks.com/tensorflow-tutorial/save-restore-tensorflow-models-quick-complete-tutorial/
     saver = tf.train.Saver()
     saver.restore(sess, tf.train.latest_checkpoint(CHECKPOINT_PATH))
 
