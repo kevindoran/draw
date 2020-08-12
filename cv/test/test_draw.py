@@ -3,6 +3,7 @@ import draw.tf_draw
 import tensorflow as tf
 import numpy as np
 
+
 def test_tf_draw(tf_session):
     sess = tf_session
     batch_size = 128
