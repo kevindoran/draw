@@ -81,10 +81,10 @@ class Gru:
         self.bp = np.random.randn(hidden_len)
 
     def forward(self, x, h):
-        z = sigmoid(self.Wz @ np.concat([x, h]) + self.bz)
-        r = sigmoid(self.Wr @ np.concat([x, h]) + self.br)
-        p = np.tanh(self.Wp @ np.concat([x, r.dot(h)]) + self.bp)
-        h_next = (1 - z).dot(p) + z.dot(h)
+        z = sigmoid(self.Wz @ np.concatenate([x, h]) + self.bz)
+        r = sigmoid(self.Wr @ np.concatenate([x, h]) + self.br)
+        p = np.tanh(self.Wp @ np.concatenate([x, r * h]) + self.bp)
+        h_next = (1 - z) * p + z * h
         return h_next
 
 
@@ -111,18 +111,18 @@ class Draw:
         self.b_μ = np.random.randn(latent_len)
         self.W_σ = np.random.randn(latent_len, decode_hidden_len)
         self.b_σ = np.random.randn(latent_len)
-        self.W_write = np.random.randn(latent_len, self.img_len)
+        self.W_write = np.random.randn(self.img_len, decode_hidden_len)
         self.b_write = np.random.randn(self.img_len)
 
     def _sample(self, e_override=None):
         e = np.random.standard_normal() if e_override is None else e_override
-        μ = self.W_μ.dot(self.enc_h) + self.b_μ
-        log_σ = self.W_σ.dot(self.enc_h) + self.b_σ
+        μ = self.W_μ @ self.enc_h + self.b_μ
+        log_σ = self.W_σ @ self.enc_h + self.b_σ
         σ = np.exp(log_σ)
         return (μ + σ*e)
 
     def _write(self, img):
-        return img + self.W_write.dot(self.dec_h) + self.b_write
+        return img + self.W_write @ self.dec_h + self.b_write
 
     def forward(self, img_in, out_img=None):
         """Forward run of the draw network."""
