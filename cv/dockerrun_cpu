@@ -3,7 +3,6 @@ docker rm cv
 docker build -t cv ./
 docker run -it \
 -u $(id -u):$(id -g) \
---gpus all \
 --name cv \
 -v $(pwd)/data:/app/data \
 -v $(pwd)/out:/app/out \
