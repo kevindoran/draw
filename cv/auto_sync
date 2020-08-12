@@ -1,6 +1,6 @@
 #!/bin/bash
 lsyncd \
--delay 3  \
+-delay 1  \
 -log all  \
 -nodaemon -rsyncssh  \
 ./ m1.us-central1-f.micronet-kdoran ~/cv
