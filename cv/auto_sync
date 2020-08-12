@@ -1,0 +1,7 @@
+#!/bin/bash
+lsyncd \
+-delay 3  \
+-log all  \
+-nodaemon -rsyncssh  \
+./ m1.us-central1-f.micronet-kdoran ~/cv
+# ./ d1.asia-northeast1-a.draw-286122 ~/cv
