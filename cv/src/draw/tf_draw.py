@@ -180,8 +180,8 @@ def generate_test():
 
 
 if __name__ == '__main__':
-    # train()
-    generate_test()
+    train()
+    # generate_test()
        
 
         #for idx, img in enumerate(img_input):
