@@ -12,9 +12,9 @@ class Gru:
 
     Steps carried out within a GRU network:
 
-    (1) z = σ(Wzx x_t + Wzh h_{t-1} + bz)
-    (2) r = σ(Wrx x_t + Wrh h_{t-1} + br)
-    (3) p = tanh(Wpx x_t + Wph r.h_{t-1})
+    (1) z = σ(Wz[x_t, h_{t-1}] + bz)
+    (2) r = σ(Wr[x_t, h_{t-1}] + br)
+    (3) p = tanh(Wp[x_t, r.h_{t-1}] + bp)
     (4) h_t = (1 - z).p + z.h_{t-1}
 
     The GRU sub-network has two inputs and one output:
@@ -48,25 +48,42 @@ class Gru:
     r is used to drop information from the existing state when determining the
     candidate state. It is calculated in step (2) and used in step (3).
 
-    From steps (1)-(4), we see that there are a total of 6 trainable matricies
-    and 2 trainable bias vectors:
+    From steps (1)-(4), we see that there are a total of 3 trainable matricies
+    and 3 trainable bias vectors:
 
-        Matricies: Wzx, Wzh, Wrx, Wrh, Wpx, Wph
-        Bias vectors: bz, br
+        Matricies: Wz, Wr, Wp
+        Bias vectors: bz, br, bp
+
+    Optimizations
+    -------------
+    Tensorflow (and possibly other frameworks) implement an optimization that
+    improves performance at the expense of making the behaviour less obvious.
+    The matrices Wz and Wr are combined into one; z and r are combined in one
+    vector which will be split apart. The computation looks like:
+
+    (0) temp = σ(Wg[x_t, h_{t-1}] + bg)
+    (1) z = first_half(temp)
+    (2) r = second_half(temp)
+    (3) p = tanh(Wp[x_t, r.h_{t-1}] + bp)
+    (4) h_t = (1 - z).p + z.h_{t-1}
+
+    With this optimization, there are only two trainable matrices Wg and Wp
+    and two trainable biases, bg and bp. I think the optimization is carried
+    out so as to reduce the number of matrix multiplications.
+
     """
     def __init__(self, input_len, hidden_len):
-        self.Wzx = np.random.randn(hidden_len, input_len) # *0.01?
-        self.Wzh = np.random.randn(hidden_len, hidden_len)
-        self.Wrx = np.random.randn(hidden_len, input_len)
-        self.Wrh = np.random.randn(hidden_len, hidden_len)
-        self.Wpx = np.random.randn(hidden_len, input_len)
-        self.Wph = np.random.randn(hidden_len, hidden_len)
+        self.Wz = np.random.randn(hidden_len, input_len + hidden_len)
+        self.Wr = np.random.randn(hidden_len, input_len + hidden_len)
+        self.Wp = np.random.randn(hidden_len, input_len + hidden_len)
+        self.bz = np.random.randn(hidden_len)
+        self.br = np.random.randn(hidden_len)
+        self.bp = np.random.randn(hidden_len)
 
     def forward(self, x, h):
-        z = sigmoid(self.Wzx.dot(x) + self.Wzh.dot(h))
-        r = sigmoid(self.Wrx.dot(x) + self.Wrh.dot(h))
-        h_reset = r.dot(self.Wph)
-        p = np.tanh(self.Wpx.dot(x) + self.Wph.dot(h_reset))
+        z = sigmoid(self.Wz @ np.concat([x, h]) + self.bz)
+        r = sigmoid(self.Wr @ np.concat([x, h]) + self.br)
+        p = np.tanh(self.Wp @ np.concat([x, r.dot(h)]) + self.bp)
         h_next = (1 - z).dot(p) + z.dot(h)
         return h_next
 
@@ -80,37 +97,39 @@ class Draw:
         Args:
             img_shape (np.narray): shape of the input and generated images.
         """
-        input_len = np.prod(img_shape)
-        enc_input_len = input_len * 2
+        self.img_len = np.prod(img_shape)
+        enc_input_len = self.img_len * 2
         self.enc_rnn = Gru(enc_input_len, encode_hidden_len)
         self.dec_rnn = Gru(latent_len, encode_hidden_len)
         # Optional: move the Gru hidden state vector into Gru class.
         #   * pros: encapsulate details relevant to GRU.
         #   * cons: slightly obscures how the network works.
-        self.enc_h = np.random.randn(encode_hidden_len)
-        self.dec_h = np.random.randn(decode_hidden_len)
+        self.enc_h = np.zeros(encode_hidden_len)
+        self.dec_h = np.zeros(decode_hidden_len)
         # Python 3 supports unicode variable names!
         self.W_μ = np.random.randn(latent_len, decode_hidden_len)
         self.b_μ = np.random.randn(latent_len)
         self.W_σ = np.random.randn(latent_len, decode_hidden_len)
         self.b_σ = np.random.randn(latent_len)
-        self.W_write = np.random.randn(latent_len, input_len)
-        self.b_write = np.random.randn(input_len)
+        self.W_write = np.random.randn(latent_len, self.img_len)
+        self.b_write = np.random.randn(self.img_len)
 
-    def _sample(self):
+    def _sample(self, e_override=None):
+        e = np.random.standard_normal() if e_override is None else e_override
         μ = self.W_μ.dot(self.enc_h) + self.b_μ
         log_σ = self.W_σ.dot(self.enc_h) + self.b_σ
         σ = np.exp(log_σ)
-        e = np.random.standard_normal()
         return (μ + σ*e)
 
     def _write(self, img):
         return img + self.W_write.dot(self.dec_h) + self.b_write
 
-    def forward(self, img_in, out_img, h_enc, h_dec):
+    def forward(self, img_in, out_img=None):
         """Forward run of the draw network."""
-        # If using a prefix batch dimension, then use
-        # xx_hat = np.concatenate(1, img_in, out_img)
+        if out_img is None:
+            out_img = np.zeros(self.img_len)
+        # If using a prefix batch dimension, then use xx_hat =
+        # np.concatenate(1, img_in, out_img)
         xx_hat = np.concatenate([img_in, out_img])
         self.h_enc = self.enc_rnn.forward(xx_hat, self.enc_h)
         z = self._sample()

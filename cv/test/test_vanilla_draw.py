@@ -50,7 +50,8 @@ def test_draw_forward():
     h_dec = np.random.randn(decode_hidden_len)
     # Test
     # No errors should be thrown:
-    updated_img = net.forward(test_img, prev_img, h_enc, h_dec)
+    updated_img = net.forward(test_img)
+    updated_img = net.forward(test_img, prev_img)
 
 
 
