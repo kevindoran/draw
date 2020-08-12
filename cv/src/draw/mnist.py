@@ -33,7 +33,7 @@ def mnist_ds(split, batch_size):
     return ds
 
 
-def create_model(data_format='channels_first'):
+def create_model(data_format='channels_last'):
     """Model to recognize MNIST digits.
   
     Args:
