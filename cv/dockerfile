@@ -16,6 +16,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # https://github.com/moby/moby/issues/36677
 RUN mkdir app && chown 1000 app
 WORKDIR /app
+# These next two folders will be where we will mount our local data and out
+# directories. We create them manually (automatic creation when mounting will
+# create them as being owned by root, and then our program cannot use them).
+RUN mkdir data && chown 1000 data
+RUN mkdir out && chown 1000 out
 
 # RUN pip install opencv-python
 COPY requirements.txt ./requirements.txt
