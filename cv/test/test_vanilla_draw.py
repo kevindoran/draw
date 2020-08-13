@@ -1,4 +1,4 @@
-import draw.vanilla_draw
+import draw.vanilla_draw as vanilla_draw
 import numpy as np
 import pytest
 
@@ -9,19 +9,19 @@ def test_gru_init():
     hidden_len = 7
     # Test
     # No errors should be thrown:
-    gru = draw.vanilla_draw.Gru(input_len, hidden_len)
+    gru = vanilla_draw.Gru(input_len, hidden_len)
 
 
 def test_gru_forward():
     # Setup
     input_len = 4
     hidden_len = 7
-    gru = draw.vanilla_draw.Gru(input_len, hidden_len)
+    gru = vanilla_draw.Gru(input_len, hidden_len)
     test_input = np.random.randn(input_len)
     initial_state = np.random.randn(hidden_len)
     # Test 
     # No errors should be thrown:
-    output = gru.forward(test_input, initial_state)
+    output = vanilla_draw.gru_forward(gru, test_input, initial_state)
 
 
 def test_draw_init():
@@ -31,7 +31,7 @@ def test_draw_init():
     latent_len = 15
     # Test
     # No errors should be thrown:
-    net = draw.vanilla_draw.Draw(
+    net = vanilla_draw.Draw(
         img_shape, encode_hidden_len, latent_len, decode_hidden_len)
 
 
@@ -40,7 +40,7 @@ def test_draw_forward():
     img_shape = (28, 28)
     encode_hidden_len = decode_hidden_len = 256
     latent_len = 15
-    net = draw.vanilla_draw.Draw(
+    net = vanilla_draw.Draw(
         img_shape, encode_hidden_len, latent_len, decode_hidden_len)
     # Note: maybe add some functions that conveniently initialize these 
     # vectors (add them to Draw)?
