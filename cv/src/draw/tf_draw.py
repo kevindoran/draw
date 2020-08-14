@@ -121,7 +121,7 @@ def create_model(x_in):
 
 def train():
     train_steps = 5000
-    ds = draw.mnist.mnist_ds('test', batch_size=BATCH_SIZE)
+    ds = draw.mnist.mnist_ds('train', batch_size=BATCH_SIZE)
     iterator = tf.compat.v1.data.make_one_shot_iterator(ds)
     img_input = iterator.get_next()[0]
     x_in = img_input

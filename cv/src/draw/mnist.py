@@ -1,6 +1,5 @@
 import tensorflow as tf
 import tensorflow_datasets as tfds
-
 import logging
 
 
@@ -29,7 +28,7 @@ def mnist_ds(split, batch_size):
             num_parallel_calls=tf.data.experimental.AUTOTUNE)
     
     # Repeat indefinitely, shuffle, and make batches.
-    ds = ds.repeat().shuffle(buffer_size=10000).batch(BATCH_SIZE)
+    ds = ds.repeat().shuffle(buffer_size=10000).batch(batch_size)
     return ds
 
 
