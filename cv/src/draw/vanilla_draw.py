@@ -118,7 +118,13 @@ class Gru:
         self.Wr = init_fctn([hidden_len, input_len + hidden_len])
         self.Wp = init_fctn([hidden_len, input_len + hidden_len])
         self.bz = init_fctn([hidden_len])
-        self.br = init_fctn([hidden_len])
+        # The reset and weighting signals need special initialization.
+        if init_fctn is None:
+            self.br = np.fill(shape, -1.0)
+            self.bz = np.fill(shape, 0.5)
+        else:
+            self.br = init_fctn([hidden_len])
+            self.bz = init_fctn([hidden_len])
         self.bp = init_fctn([hidden_len])
 
     def update(self, other, factor):
@@ -197,9 +203,12 @@ class Draw:
         #   * has a huge effect on the tendency to encouter an
         #     underflow/overflow at the beginning of training.
         if init_fctn is None:
-            init_fctn = lambda shape : 0.1 * np.random.randn(*shape) - 0.03
-        self.enc_rnn = Gru(enc_input_len, encode_hidden_len, init_fctn)
-        self.dec_rnn = Gru(latent_len, decode_hidden_len, init_fctn)
+            init_fctn = lambda shape : 0.1 * np.random.randn(*shape) # - 0.03
+            self.enc_rnn = Gru(enc_input_len, encode_hidden_len)
+            self.dec_rnn = Gru(latent_len, decode_hidden_len)
+        else:
+            self.enc_rnn = Gru(enc_input_len, encode_hidden_len, init_fctn)
+            self.dec_rnn = Gru(latent_len, decode_hidden_len, init_fctn)
         self.W_μ =     init_fctn([latent_len, encode_hidden_len])
         self.b_μ =     init_fctn([latent_len])
         self.W_σ =     init_fctn([latent_len, encode_hidden_len])
@@ -230,7 +239,7 @@ def _sample(draw, enc_h, e_override=None):
            else e_override
     μ = draw.W_μ @ enc_h + draw.b_μ
     log_σ = draw.W_σ @ enc_h + draw.b_σ
-    σ = np.exp(log_σ)
+    σ = np.exp(log_σ) 
     z = (μ + σ * e)
     activations = QActivation(μ, σ, e, z)
     return activations
@@ -341,8 +350,8 @@ def backprop_Q(dz, draw, ddraw, draw_act):
     """
     # Distribution loss
     # kl_loss = draw_act.μ**2 + draw_act.σ**2 - draw_act.log_σ**2
-    dσ = 2 * draw_act.Q.σ
     dμ = 2 * draw_act.Q.μ
+    dσ = 2 * draw_act.Q.σ
     dσ_log = 2 * np.log(draw_act.Q.σ) 
 
     # Image loss
@@ -470,7 +479,7 @@ def train(num_loops, final_learning_rate, steps):
     # rate up to its maximum, then descend until we reach the given lower 
     # bound (final) learning rate.
     careful_boost = 100
-    full_boost = 10000
+    full_boost = 1000
     lr = final_learning_rate  * careful_boost
     for s in range(steps):
         if s == warmup_steps:

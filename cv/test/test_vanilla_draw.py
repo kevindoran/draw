@@ -208,7 +208,7 @@ def test_train():
     vanilla_draw.train(num_loops=10, learning_rate=1e-5, steps=20)
 
 
-def test_sample(tf_session):
+def test_model(tf_session):
     """Train and evaluate the NumPy DRAW implementation.
 
     This is effectively the  main method of the whole project!
@@ -222,13 +222,13 @@ def test_sample(tf_session):
     # Training the NumPy DRAW implementation is very prone to numeric 
     # exceptions. Make them exceptions is helpful when experimenting.
     np.seterr(all='raise')
-    num_loops = 3
+    num_loops = 4
     ds = tfds.as_numpy(mnist.mnist_ds('train', batch_size=1))
     # 1) Train NumPy DRAW implementation.
     # Reduce learning rate if encountering numeric errors (or, tweak the
     # learing rate multipliers used by the train() function).
     draw_model = vanilla_draw.train(num_loops=num_loops, 
-            final_learning_rate=1e-6, steps=100000)
+            final_learning_rate=1e-7, steps=100000)
     # 2) Generate some images with the trained model.
     num_eval = 128
     generated_imgs = []
