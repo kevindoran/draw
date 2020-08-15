@@ -2,47 +2,51 @@
 import numpy as np
 import logging
 
+# Used to avoid division by zero in some places. 
 _epsilon = 1e-8 
 
 def sigmoid(x):
-    x = np.clip(x, -50, 50)
     return  1 / (1 + np.exp(-x))
 
 
 def d_sigmoid(y):
+    """Computes dy/dx of y=sigmoid(x), in terms of y."""
     return y * (1 - y)
 
 
 def d_tanh(y):
+    """Computes dy/dx of y=tanh(x), in terms of y."""
     return 1 - y**2
 
 
 def d_exp(y):
+    """Computes dy/dx of y=exp(x), in terms of y.
+    
+    By definition, the result is simply y. I keep this method even though it
+    is so simple, as without it, it is not clear that a derivative operation
+    has taken place.
+    """
     return y
 
 
 def binary_cross_entropy(target, out):
+    """Computes the binary cross entropy of target with respect to out. 
+
+    Args:
+        target: array of bernoulli distribution parameters.
+        out: array of bernoulli distribution parameters.
+    """
     return -(target * np.log(out + _epsilon) + 
              (1.0 - target) * np.log(1.0 - out + _epsilon))
 
 
 def d_binary_cross_entropy(target, out):
+    """Computes ∂y/∂o of y(t, o) = binary_cross_entropy(t, o)."""
     return -(target / (out + _epsilon)) + (1 - target) / (1 - out + _epsilon)
 
 
-def kl_loss_wrt_std_normal(μ, σ):
-    # This comes directly from the paper without derivation, eq 11.   
-    pass
-
-
-def d_kl_loss_wrt_std_normal():
-    # TODO
-    pass
-
-
-# Model parameters
 class Gru:
-    """Encapsulates the state and behaviour of a GRU (gated recurrent unit).
+    """Encapsulates the state of a GRU (gated recurrent unit).
 
     Steps carried out within a GRU network:
 
@@ -104,7 +108,6 @@ class Gru:
     With this optimization, there are only two trainable matrices Wg and Wp
     and two trainable biases, bg and bp. I think the optimization is carried
     out so as to reduce the number of matrix multiplications.
-
     """
     def __init__(self, input_len, hidden_len, init_fctn=None):
         self.input_len = input_len
@@ -119,7 +122,7 @@ class Gru:
         self.bp = init_fctn([hidden_len])
 
     def update(self, other, factor):
-        """Add to the GRUs weights (this is used when training)."""  
+        """Add to the GRU's weights (this is used when training)."""  
         self.Wz += other.Wz * factor
         self.Wr += other.Wr * factor 
         self.Wp += other.Wp * factor 
@@ -128,7 +131,6 @@ class Gru:
         self.bp += other.bp * factor 
 
 
-# Note: these basic classes could be replaced with named tuples.
 class GruActivation:
     def __init__(self, x, h_prev, r, z, p, h):
         self.x = x
@@ -149,16 +151,23 @@ class QActivation:
 
 class DrawActivation:
     def __init__(self, c_prev, enc, Q, dec, c):
-        # self.x = None
+        """
+        Args:
+            c_prev: the previous canvas.
+            enc (GruActivation): the activation for the encoder GRU.
+            Q (QActivation): the activation for the sampler tensors.
+            dec (GruActivation): the activation for the decoder GRU.
+            c: the canvas output
+        """
         self.c_prev = c_prev
         self.enc = enc
         self.dec = dec
         self.Q = Q
-        # self.c_u = c_u
         self.c = c
 
 
 def gru_forward(gru, x, h):
+    """Compute the output of the GRU."""
     z = sigmoid(gru.Wz @ np.concatenate([x, h]) + gru.bz)
     r = sigmoid(gru.Wr @ np.concatenate([x, h]) + gru.br)
     p = np.tanh(gru.Wp @ np.concatenate([x, r * h]) + gru.bp)
@@ -169,9 +178,8 @@ def gru_forward(gru, x, h):
     return h_next, activations
 
 
-
 class Draw:
-
+    """Encapsulates the state of a DRAW network."""
     def __init__(self, img_shape, num_loops, encode_hidden_len, latent_len, 
             decode_hidden_len, init_fctn=None):
         """Construct a Draw network.
@@ -184,6 +192,10 @@ class Draw:
         self.num_loops = num_loops
         self.latent_len = latent_len
         enc_input_len = self.img_len * 2
+        # The initialization function both:
+        #   * has a huge effect on training effectiveness.
+        #   * has a huge effect on the tendency to encouter an
+        #     underflow/overflow at the beginning of training.
         if init_fctn is None:
             init_fctn = lambda shape : 0.1 * np.random.randn(*shape) - 0.03
         self.enc_rnn = Gru(enc_input_len, encode_hidden_len, init_fctn)
@@ -208,24 +220,24 @@ class Draw:
 
 
 def _write(draw, dec_h, canvas):
+    """Run the given DRAW network's write operation on a canvas."""
     return canvas + draw.W_write @ dec_h + draw.b_write
 
 
 def _sample(draw, enc_h, e_override=None):
+    """Sample from a DRAW networks generation distribution."""
     e = np.random.standard_normal(draw.latent_len) if e_override is None \
            else e_override
-    #e = np.ones(draw.latent_len)
     μ = draw.W_μ @ enc_h + draw.b_μ
     log_σ = draw.W_σ @ enc_h + draw.b_σ
-    # σ = np.exp(np.clip(log_σ, -50, 50))
     σ = np.exp(log_σ)
-    z = (μ + σ*e)
+    z = (μ + σ * e)
     activations = QActivation(μ, σ, e, z)
     return activations
 
 
 def _draw_forward_once(draw, img_in, enc_h, dec_h, c_prev):
-    """Forward run of the draw network."""
+    """Forward run of the DRAW network."""
     xx_hat = np.concatenate([img_in, img_in - c_prev])
     enc_h, enc_act = gru_forward(draw.enc_rnn, xx_hat, enc_h)
     Q_act = _sample(draw, enc_h)
@@ -236,6 +248,7 @@ def _draw_forward_once(draw, img_in, enc_h, dec_h, c_prev):
 
 
 def draw_forward(draw, img_in):
+    """Run all loops of a DRAW network for a given input image."""
     img_in = img_in.flatten()
     canvas = np.zeros(img_in.shape)
     enc_h = np.zeros(draw.enc_rnn.hidden_len)
@@ -254,12 +267,30 @@ def draw_forward(draw, img_in):
 
 # Note: assume that the error signal contains error from next step's hidden.
 def backprop_gru(e, gru, dgru, gru_act):
-    # Our outputs dx and dh_prev start at zero.
-    # Setting them at zero reduces the likelihood of introducing a bug by
-    # moving around some of the satements below. dx and dh_prev should always 
-    # be added to, not assigned.
+    """Back-propagate error gradients through a GRU unit.
+
+    The gradients for each trainable variable are computed and returned.
+
+    Args:
+        e: the change in loss/error with respect to the output. Note: it is
+           required that this error signal contains the error from both the
+           directly connected output and the error from the feedback loop.
+        gru: the GRU unit for which to back-propagate through.
+        dgru: gradients will added to dgru (incrementing existing values).
+        gru_act: the activations of the given GRU unit.
+    Returns:
+        (dx, dh_prev): the change in loss wrt. the input signal and hidden 
+                       state signal.
+    """
+    # Our outputs, dx and dh_prev. They will be incremented at multiple 
+    # points within this method.
     dx = 0
     dh_prev = 0
+
+    # Proceed in reverse. The equation numbers cross-reference the equation 
+    # numbers listed in the Gru class above. Refer to the test file for a 
+    # manual back-propagation walkthrough of these steps. 
+
     # (4) h_t = (1 - z).p + z.h_{t-1}
     dz = e * (gru_act.h_prev - gru_act.p)
     dh_prev += e * gru_act.z
@@ -299,11 +330,21 @@ def backprop_gru(e, gru, dgru, gru_act):
 
 
 def backprop_Q(dz, draw, ddraw, draw_act): 
+    """Back-propagate the error signal through the sampling layer.
+    
+    The sampling layer deals with both the error signal coming from its output
+    and the error signal generated as a result of the KL-divergence with respect
+    to our prior/goal distribution (standard normal).
+
+    This method isn't well tested, and is somehere I would consider not-unlikely
+    to contain mistakes.
+    """
     # Distribution loss
     # kl_loss = draw_act.μ**2 + draw_act.σ**2 - draw_act.log_σ**2
-    dσ = 2*draw_act.Q.σ
-    dμ = 2*draw_act.Q.μ
-    dσ_log = 2*np.log(draw_act.Q.σ) 
+    dσ = 2 * draw_act.Q.σ
+    dμ = 2 * draw_act.Q.μ
+    dσ_log = 2 * np.log(draw_act.Q.σ) 
+
     # Image loss
     # σ
     dσ += dz * draw_act.Q.e
@@ -320,12 +361,37 @@ def backprop_Q(dz, draw, ddraw, draw_act):
 
 
 def backprop_draw(dc_linear, denc_h, ddec_h, draw, ddraw, draw_act):
+    """Back-propagate error through one loop of a DRAW network.
+
+    An important assumption for this method is that the dc_linear error given
+    as input contains both the direct contribution to the cross-entropy loss
+    and the loss that has propagated back from the next loop, if any.
+
+    Args:
+        dc_linear: the error gradient coming from both a) the cross-entropy loss
+            and b) the error fedback from the next loop.
+        denc_h: the error gradient from the encoder's hidden state connected 
+            to the next layer, if any.
+        ddec_h: the error gradient from the decoder's hidden state connected 
+            to the next layer, if any.
+        draw: the draw network.
+        ddraw: the draw object where gradients will be stored.
+        draw_act: all of the activations for this loop.
+    Returns:
+        (dc_prev, denc_h_prev, ddec_h_prev): 
+           1) the loss gradient wrt. the loop's input.
+           2) the loss gradient wrt. the encoder's hidden state.
+           3) the loss gradient wrt. the decoder's hidden state.
+    """
     ddraw.W_write = np.outer(dc_linear, draw_act.dec.h)
     ddraw.b_write = dc_linear 
-    # This next line is subtle but important for the recursive behaviour.
+    # This next line is subtle but important for the recursive behaviour. We
+    # must *add* the two different errors to create ddec_h.
     ddec_h += np.transpose(draw.W_write) @ dc_linear
     dz, ddec_h_prev = backprop_gru(ddec_h, draw.dec_rnn, ddraw.dec_rnn, 
             draw_act.dec)
+    # This next line is subtle but important for the recursive behaviour. We
+    # must *add* the two different errors to create denc_h.
     denc_h += backprop_Q(dz, draw, ddraw, draw_act)
     dxx_hat, denc_h_prev = backprop_gru(denc_h, draw.enc_rnn, ddraw.enc_rnn,
             draw_act.enc)
@@ -335,18 +401,21 @@ def backprop_draw(dc_linear, denc_h, ddec_h, draw, ddraw, draw_act):
 
 
 def dloss(draw, img_in):
-    # Duplicate the set of trainable variables to store the gradients.
+    """Run back-propagation for a whole DRAW network (for all loops)."""
     init_fctn = lambda shape : np.zeros(shape)
+    # Duplicate the set of trainable variables to store the gradients.
     ddraw = Draw(draw.img_shape, draw.num_loops, draw.enc_rnn.hidden_len, 
             draw.latent_len, draw.dec_rnn.hidden_len, init_fctn=init_fctn)
+    # Run the whole network and record the output and all activations.
     img_out, activations =  draw_forward(draw, img_in)
+    # Flatten the images, as our network take the data in as a vector.
     flat_img_in = img_in.flatten()
     flat_img_out = img_out.flatten()
     loss = binary_cross_entropy(flat_img_in, flat_img_out)
     dc = d_binary_cross_entropy(flat_img_in, flat_img_out)
-    dc_linear = np.clip(dc * d_sigmoid(flat_img_out), -100, 100)
+    dc_linear = dc * d_sigmoid(flat_img_out)
     dc_prev = 0
-    ddraw.b_write = dc_linear
+    #ddraw.b_write = dc_linear
     denc_h_prev = np.zeros(draw.enc_rnn.hidden_len)
     ddec_h_prev = np.zeros(draw.dec_rnn.hidden_len)
     for i in reversed(range(draw.num_loops)):
@@ -359,12 +428,28 @@ def dloss(draw, img_in):
 
 
 def sgd(draw, img_in, learning_rate):
+    """Stochastic gradient descent.
+
+    An extremely basic training step (no batching nor momentum etc.).
+
+    Run the draw network for all of its loops and calculate loss gradients for
+    the whole network. Then multiply weights by the gradients (with a factor).
+
+    Returns:
+        the binary cross-entropy loss of our output wrt to the input image.
+    """
     loss, ddraw = dloss(draw, img_in)
     draw.update(ddraw, -learning_rate)
     return loss
 
 
 def train(num_loops, final_learning_rate, steps):
+    """Construct and train a draw network.
+
+    This is the top level training function. It is the site of a lot of 
+    hacky experimentation with training schedules, so it never looks tidy.
+    """
+    # Construct a Draw object with preset settings.
     enc_hidden_len = 128
     dec_hidden_len = 256
     latent_len = 10
@@ -372,16 +457,18 @@ def train(num_loops, final_learning_rate, steps):
     draw = Draw(img_shape, num_loops, enc_hidden_len, latent_len, 
             dec_hidden_len) 
 
-    # We are importing Tensorflow for loading MNIST.
+    # We are importing Tensorflow, but only for loading MNIST.
     import draw.mnist as mnist
     import tensorflow_datasets as tfds
+    ds = tfds.as_numpy(mnist.mnist_ds('train', batch_size=1))
     logging.info('Beginning training.')
     log_every = 200
-    ds = tfds.as_numpy(mnist.mnist_ds('train', batch_size=1))
-    # TODO: only using one image for testing of training; easy to stop
-    # issues.
-    # (img_in, label) = next(ds)
     warmup_steps = steps * 0.25
+    # We want to start with a high learning rate, then decrease. Initially,
+    # the network is very unstable and prone to numeric overflow/underflows,
+    # so we start 'carefully'. After the careful period, we bump the learning
+    # rate up to its maximum, then descend until we reach the given lower 
+    # bound (final) learning rate.
     careful_boost = 100
     full_boost = 10000
     lr = final_learning_rate  * careful_boost
@@ -390,12 +477,14 @@ def train(num_loops, final_learning_rate, steps):
             lr = final_learning_rate * full_boost
         if s > warmup_steps and lr > final_learning_rate:
             lr  = lr * 0.995
+        # Get our next image.
         (img_in, label) = next(ds)
         # Remove the batch dimension, then flatten.
         img_flat = img_in[0].flatten()
+        # Run a step of stochastic gradient descent.
         loss = sgd(draw, img_flat, lr)
+        # Periodically log.
         if s % log_every == 0:
-            # import pdb; pdb.set_trace();
             logging.info(f'Step: {s}/{steps},\t\tloss:{loss}')
     return draw
 
@@ -409,7 +498,7 @@ def sample(draw, img_in, num_loops):
             
 
 if __name__ == '__main__':
-    train(num_loops=10, final_learning_rate=1e-5, steps=2000)
+    train(num_loops=10, final_learning_rate=1e-5, steps=20000)
 
 
 
