@@ -32,10 +32,11 @@ def test_draw_init():
     img_shape = (28, 28)
     encode_hidden_len = decode_hidden_len = 256
     latent_len = 15
+    num_loops = 4
     # Test
     # No errors should be thrown:
     net = vanilla_draw.Draw(
-        img_shape, encode_hidden_len, latent_len, decode_hidden_len)
+        img_shape, num_loops, encode_hidden_len, latent_len, decode_hidden_len)
 
 
 def test_draw_forward():
@@ -43,18 +44,16 @@ def test_draw_forward():
     img_shape = (28, 28)
     encode_hidden_len = decode_hidden_len = 256
     latent_len = 15
+    num_loops = 10
     net = vanilla_draw.Draw(
-        img_shape, encode_hidden_len, latent_len, decode_hidden_len)
-    # Note: maybe add some functions that conveniently initialize these 
-    # vectors (add them to Draw)?
+        img_shape, num_loops, encode_hidden_len, latent_len, decode_hidden_len)
     test_img = np.random.randn(28 * 28) 
-    prev_img = np.random.randn(28 * 28) 
+    prev_img = None
     h_enc = np.random.randn(encode_hidden_len)
     h_dec = np.random.randn(decode_hidden_len)
     # Test
     # No errors should be thrown:
-    updated_img = net.forward(test_img)
-    updated_img = net.forward(test_img, prev_img)
+    canvas, _ = vanilla_draw.draw_forward(net, test_img)
 
 
 def test_gru_forward_and_back():
@@ -205,25 +204,26 @@ def test_gru_forward_and_back():
 
 def test_train():
     # No errors should be thrown:
-    vanilla_draw.train(num_loops=10, learning_rate=1e-5, steps=100)
+    vanilla_draw.train(num_loops=10, learning_rate=1e-5, steps=20)
 
 
 def test_sample(tf_session):
-    num_loops = 1
+    np.seterr(all='raise')
+    num_loops = 3
     steps = 128
     ds = tfds.as_numpy(mnist.mnist_ds('train', batch_size=1))
     generated_imgs = []
     labels = []
     # TODO: work to restore from file.
-    draw_model = vanilla_draw.train(num_loops=num_loops, learning_rate=1e-3, 
-            steps=1000)
+    draw_model = vanilla_draw.train(num_loops=num_loops, final_learning_rate=1e-8, 
+            steps=100000)
     for s in range(steps):
         (img_in, label) = next(ds)
         # Remove batch dimension.
         img_in = img_in[0]
-        img_out = vanilla_draw.draw_forward(draw_model, img_in, num_loops)
+        img_out, _ = vanilla_draw.draw_forward(draw_model, img_in)
         import cv2 as cv
-        cv.imwrite(f'./out/img_{s}.png', img_out*255)
+        cv.imwrite(f'./out/img_{s}_label_{label[0]}.png', img_out*255)
         # Add the batch dimension back in (needed for mnist evaluator).
         img_out = np.expand_dims(img_out, axis=0)
         # Also, Tensorflow accepts float32, and our numpy arrays have been

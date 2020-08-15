@@ -5,6 +5,7 @@ import logging
 _epsilon = 1e-8 
 
 def sigmoid(x):
+    x = np.clip(x, -50, 50)
     return  1 / (1 + np.exp(-x))
 
 
@@ -26,7 +27,7 @@ def binary_cross_entropy(target, out):
 
 
 def d_binary_cross_entropy(target, out):
-    return -(target / out) + (1 - target) / (1 - out)
+    return -(target / (out + _epsilon)) + (1 - target) / (1 - out + _epsilon)
 
 
 def kl_loss_wrt_std_normal(μ, σ):
@@ -106,22 +107,16 @@ class Gru:
 
     """
     def __init__(self, input_len, hidden_len, init_fctn=None):
+        self.input_len = input_len
+        self.hidden_len = hidden_len
         if init_fctn is None:
-            init_fctn = lambda shape : 0.01 * np.random.randn(shape)
+            init_fctn = lambda shape : 0.1 * np.random.randn(*shape) - 0.05
         self.Wz = init_fctn([hidden_len, input_len + hidden_len])
         self.Wr = init_fctn([hidden_len, input_len + hidden_len])
         self.Wp = init_fctn([hidden_len, input_len + hidden_len])
         self.bz = init_fctn([hidden_len])
         self.br = init_fctn([hidden_len])
         self.bp = init_fctn([hidden_len])
-
-    @property
-    def hidden_len(self):
-        return np.shape(self.Wz)[0]
-
-    @property
-    def input_len(self):
-        return np.shape(self.Wz)[1] - self.hidden_len
 
     def update(self, other, factor):
         """Add to the GRUs weights (this is used when training)."""  
@@ -177,8 +172,8 @@ def gru_forward(gru, x, h):
 
 class Draw:
 
-    def __init__(self, img_shape, encode_hidden_len, latent_len, 
-            decode_hidden_len, init_factor=0.01):
+    def __init__(self, img_shape, num_loops, encode_hidden_len, latent_len, 
+            decode_hidden_len, init_fctn=None):
         """Construct a Draw network.
 
         Args:
@@ -186,36 +181,19 @@ class Draw:
         """
         self.img_shape = img_shape
         self.img_len = np.prod(img_shape)
+        self.num_loops = num_loops
+        self.latent_len = latent_len
         enc_input_len = self.img_len * 2
-        self.enc_rnn = Gru(enc_input_len, encode_hidden_len, init_factor)
-        self.dec_rnn = Gru(latent_len, encode_hidden_len, init_factor)
-        # Optional: move the Gru hidden state vector into Gru class.
-        #   * pros: encapsulate details relevant to GRU.
-        #   * cons: slightly obscures how the network works.
-        self.enc_h = np.zeros(encode_hidden_len)
-        self.dec_h = np.zeros(decode_hidden_len)
-        # Python 3 supports unicode variable names!
-        self.W_μ =     init_factor * np.random.randn(latent_len, 
-                decode_hidden_len)
-        self.b_μ =     init_factor * np.random.randn(latent_len)
-        self.W_σ =     init_factor * np.random.randn(latent_len, 
-                decode_hidden_len)
-        self.b_σ =     init_factor * np.random.randn(latent_len)
-        self.W_write = init_factor * np.random.randn(self.img_len, 
-                decode_hidden_len)
-        self.b_write = init_factor * np.random.randn(self.img_len)
-
-    @property
-    def enc_hidden_len(self):
-        return np.shape(self.enc_h)[0]
-
-    @property
-    def dec_hidden_len(self):
-        return np.shape(self.dec_h)[0]
-
-    @property
-    def latent_len(self):
-        return np.shape(self.W_μ)[0]
+        if init_fctn is None:
+            init_fctn = lambda shape : 0.1 * np.random.randn(*shape) - 0.03
+        self.enc_rnn = Gru(enc_input_len, encode_hidden_len, init_fctn)
+        self.dec_rnn = Gru(latent_len, decode_hidden_len, init_fctn)
+        self.W_μ =     init_fctn([latent_len, encode_hidden_len])
+        self.b_μ =     init_fctn([latent_len])
+        self.W_σ =     init_fctn([latent_len, encode_hidden_len])
+        self.b_σ =     init_fctn([latent_len])
+        self.W_write = init_fctn([self.img_len, decode_hidden_len])
+        self.b_write = init_fctn([self.img_len])
 
     def update(self, other, factor):
         """Add to the models weights (this is used when training)."""
@@ -228,45 +206,50 @@ class Draw:
         self.W_write += other.W_write * factor
         self.b_write += other.b_write * factor
 
-    # TODO: move these to be file level functions. 
-    def _sample(self, e_override=None):
-        e = np.random.standard_normal(self.latent_len) if e_override is None \
-                else e_override
-        μ = self.W_μ @ self.enc_h + self.b_μ
-        log_σ = self.W_σ @ self.enc_h + self.b_σ
-        σ = np.exp(log_σ)
-        z = (μ + σ*e)
-        activations = QActivation(μ, σ, e, z)
-        return z, activations
 
-    def _write(self, img):
-        return img + self.W_write @ self.dec_h + self.b_write
-
-    def forward(self, img_in, c_prev=None):
-        """Forward run of the draw network."""
-        if c_prev is None:
-            c_prev = np.zeros(self.img_len)
-        xx_hat = np.concatenate([img_in, img_in - c_prev])
-        self.enc_h, enc_act = gru_forward(self.enc_rnn, xx_hat, self.enc_h)
-        z, Q_act = self._sample()
-        self.dec_h, dec_act = gru_forward(self.dec_rnn, z, self.dec_h)
-        c = self._write(c_prev)
-        activations = DrawActivation(c_prev, enc_act, Q_act, dec_act, c) 
-        return c, activations
-
-    def reset_hidden(self):
-        self.enc_h = np.zeros(self.enc_h.shape[0])
-        self.dec_h = np.zeros(self.dec_h.shape[0])
+def _write(draw, dec_h, canvas):
+    return canvas + draw.W_write @ dec_h + draw.b_write
 
 
-def draw_forward(draw, img_in, num_loops):
+def _sample(draw, enc_h, e_override=None):
+    e = np.random.standard_normal(draw.latent_len) if e_override is None \
+           else e_override
+    #e = np.ones(draw.latent_len)
+    μ = draw.W_μ @ enc_h + draw.b_μ
+    log_σ = draw.W_σ @ enc_h + draw.b_σ
+    # σ = np.exp(np.clip(log_σ, -50, 50))
+    σ = np.exp(log_σ)
+    z = (μ + σ*e)
+    activations = QActivation(μ, σ, e, z)
+    return activations
+
+
+def _draw_forward_once(draw, img_in, enc_h, dec_h, c_prev):
+    """Forward run of the draw network."""
+    xx_hat = np.concatenate([img_in, img_in - c_prev])
+    enc_h, enc_act = gru_forward(draw.enc_rnn, xx_hat, enc_h)
+    Q_act = _sample(draw, enc_h)
+    dec_h, dec_act = gru_forward(draw.dec_rnn, Q_act.z, dec_h)
+    c = _write(draw, dec_h, c_prev)
+    activations = DrawActivation(c_prev, enc_act, Q_act, dec_act, c) 
+    return activations
+
+
+def draw_forward(draw, img_in):
     img_in = img_in.flatten()
-    canvas = None
-    for l in range(num_loops):
-        canvas, _ = draw.forward(img_in, canvas)
+    canvas = np.zeros(img_in.shape)
+    enc_h = np.zeros(draw.enc_rnn.hidden_len)
+    dec_h = np.zeros(draw.dec_rnn.hidden_len)
+    activations = []
+    for l in range(draw.num_loops):
+        act = _draw_forward_once(draw, img_in, enc_h, dec_h, canvas)
+        activations.append(act)
+        enc_h = act.enc.h
+        dec_h = act.dec.h
+        canvas = act.c
     canvas = sigmoid(canvas)
     res = np.reshape(canvas, draw.img_shape)
-    return res
+    return res, activations
 
 
 # Note: assume that the error signal contains error from next step's hidden.
@@ -320,7 +303,7 @@ def backprop_Q(dz, draw, ddraw, draw_act):
     # kl_loss = draw_act.μ**2 + draw_act.σ**2 - draw_act.log_σ**2
     dσ = 2*draw_act.Q.σ
     dμ = 2*draw_act.Q.μ
-    dσ_log = 2*np.log(draw_act.Q.σ) # Need to extract un log version?
+    dσ_log = 2*np.log(draw_act.Q.σ) 
     # Image loss
     # σ
     dσ += dz * draw_act.Q.e
@@ -336,11 +319,11 @@ def backprop_Q(dz, draw, ddraw, draw_act):
     return denc_h
 
 
-def backprop_draw(err, denc_h, ddec_h, draw, ddraw, draw_act):
-    ddraw.W_write = np.outer(err, draw_act.dec.h)
-    ddraw.b_write = err 
+def backprop_draw(dc_linear, denc_h, ddec_h, draw, ddraw, draw_act):
+    ddraw.W_write = np.outer(dc_linear, draw_act.dec.h)
+    ddraw.b_write = dc_linear 
     # This next line is subtle but important for the recursive behaviour.
-    ddec_h += np.transpose(draw.W_write) @ err
+    ddec_h += np.transpose(draw.W_write) @ dc_linear
     dz, ddec_h_prev = backprop_gru(ddec_h, draw.dec_rnn, ddraw.dec_rnn, 
             draw_act.dec)
     denc_h += backprop_Q(dz, draw, ddraw, draw_act)
@@ -351,60 +334,69 @@ def backprop_draw(err, denc_h, ddec_h, draw, ddraw, draw_act):
     return dc_prev, denc_h_prev, ddec_h_prev
 
 
-         
-def dloss(draw, img_in, num_loops):
+def dloss(draw, img_in):
     # Duplicate the set of trainable variables to store the gradients.
-    ddraw = Draw(draw.img_shape, draw.enc_hidden_len, draw.latent_len, 
-            draw.dec_hidden_len, init_factor=0)
-    activations = []
-    c_prev = None
-    for i in range(num_loops):
-        c_prev, act = draw.forward(img_in, c_prev)
-        activations.append(act)
-    output = sigmoid(c_prev)
-    loss = binary_cross_entropy(img_in, output)
-    dl = d_binary_cross_entropy(img_in, output)
-    dc_prev = dl * d_sigmoid(output)
-    ddraw.b_write = dc_prev
-    denc_h_prev = np.zeros(draw.enc_hidden_len)
-    ddec_h_prev = np.zeros(draw.dec_hidden_len)
-    for i in reversed(range(num_loops)):
-        dc_prev, denc_h_prev, ddec_h_prev = backprop_draw(dc_prev, denc_h_prev, 
-            ddec_h_prev, draw, ddraw, activations[i])
+    init_fctn = lambda shape : np.zeros(shape)
+    ddraw = Draw(draw.img_shape, draw.num_loops, draw.enc_rnn.hidden_len, 
+            draw.latent_len, draw.dec_rnn.hidden_len, init_fctn=init_fctn)
+    img_out, activations =  draw_forward(draw, img_in)
+    flat_img_in = img_in.flatten()
+    flat_img_out = img_out.flatten()
+    loss = binary_cross_entropy(flat_img_in, flat_img_out)
+    dc = d_binary_cross_entropy(flat_img_in, flat_img_out)
+    dc_linear = np.clip(dc * d_sigmoid(flat_img_out), -100, 100)
+    dc_prev = 0
+    ddraw.b_write = dc_linear
+    denc_h_prev = np.zeros(draw.enc_rnn.hidden_len)
+    ddec_h_prev = np.zeros(draw.dec_rnn.hidden_len)
+    for i in reversed(range(draw.num_loops)):
+        # This next line is critical in theory and practice! 
+        dc_sum = dc_prev + dc_linear
+        dc_prev, denc_h_prev, ddec_h_prev = backprop_draw(dc_sum, 
+                denc_h_prev, ddec_h_prev, draw, ddraw, activations[i])
         
     return np.sum(loss), ddraw
 
 
-# note: maybe move num_loops into Draw class. It's sort-of sort-of not part of
-# it.
-def sgd(draw, img_in, num_loops, learning_rate):
-    loss, ddraw = dloss(draw, img_in, num_loops)
+def sgd(draw, img_in, learning_rate):
+    loss, ddraw = dloss(draw, img_in)
     draw.update(ddraw, -learning_rate)
     return loss
 
 
-def train(num_loops, learning_rate, steps):
-    enc_hidden_len = 256
+def train(num_loops, final_learning_rate, steps):
+    enc_hidden_len = 128
     dec_hidden_len = 256
     latent_len = 10
     img_shape = [28, 28]
-    draw = Draw(img_shape, enc_hidden_len, latent_len, dec_hidden_len) 
+    draw = Draw(img_shape, num_loops, enc_hidden_len, latent_len, 
+            dec_hidden_len) 
 
     # We are importing Tensorflow for loading MNIST.
     import draw.mnist as mnist
     import tensorflow_datasets as tfds
     logging.info('Beginning training.')
+    log_every = 200
     ds = tfds.as_numpy(mnist.mnist_ds('train', batch_size=1))
     # TODO: only using one image for testing of training; easy to stop
     # issues.
     # (img_in, label) = next(ds)
+    warmup_steps = steps * 0.25
+    careful_boost = 100
+    full_boost = 10000
+    lr = final_learning_rate  * careful_boost
     for s in range(steps):
+        if s == warmup_steps:
+            lr = final_learning_rate * full_boost
+        if s > warmup_steps and lr > final_learning_rate:
+            lr  = lr * 0.995
         (img_in, label) = next(ds)
         # Remove the batch dimension, then flatten.
         img_flat = img_in[0].flatten()
-        draw.reset_hidden() # Keep?
-        loss = sgd(draw, img_flat, num_loops, learning_rate)
-        logging.info(f'Step: {s}/{steps},\t\tloss:{loss}')
+        loss = sgd(draw, img_flat, lr)
+        if s % log_every == 0:
+            # import pdb; pdb.set_trace();
+            logging.info(f'Step: {s}/{steps},\t\tloss:{loss}')
     return draw
 
 
@@ -416,9 +408,8 @@ def sample(draw, img_in, num_loops):
     return img_out
             
 
-
-    
-
+if __name__ == '__main__':
+    train(num_loops=10, final_learning_rate=1e-5, steps=2000)
 
 
 
