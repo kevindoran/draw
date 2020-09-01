@@ -205,7 +205,7 @@ def test_gru_forward_and_back():
 
 def test_train():
     # No errors should be thrown:
-    vanilla_draw.train(num_loops=10, learning_rate=1e-5, steps=20)
+    vanilla_draw.train(num_loops=10, final_learning_rate=1e-6, steps=20)
 
 
 def test_model(tf_session):
@@ -228,7 +228,7 @@ def test_model(tf_session):
     # Reduce learning rate if encountering numeric errors (or, tweak the
     # learing rate multipliers used by the train() function).
     draw_model = vanilla_draw.train(num_loops=num_loops, 
-            final_learning_rate=1e-7, steps=100000)
+            final_learning_rate=1e-8, steps=1000000)
     # 2) Generate some images with the trained model.
     num_eval = 128
     generated_imgs = []

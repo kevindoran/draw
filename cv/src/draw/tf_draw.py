@@ -12,25 +12,27 @@ BATCH_SIZE = 128
 
 
 def model(x_in, enc_size, dec_size, z_size, num_loops, batch_size):
-    # Expect the input processing to do this.
+    # x_in should be a tensor of shape [batch size, 28, 28] filled with 
+    # floats between 0 and 1.
+
+    # Not needed (expect the input processing to do this).
     # x_in = x_in * 1/255
     # x_in = tf.cast(x_in, tf.float32)
-    # x_in should be a tensor of shape [batch size, 28*28] filled with 
-    # floats between 0 and 1.
 
     #x_in = tf.placeholder(tf.float32,shape=(batch_size,img_shape)) 
     assert len(x_in.shape) == 3, "Expecting (batch, height, width)."
     # Flatten the input to be 1D
     x_in_flat = tf.reshape(x_in, [-1, x_in.shape[1]*x_in.shape[2]])
     img_shape = x_in_flat.shape[1:]
-    rand = tf.random.normal((batch_size,z_size), mean=0, stddev=1)
-    enc_rnn = tf.keras.layers.GRUCell(enc_size, name='enc_GRU')
-    dec_rnn = tf.keras.layers.GRUCell(dec_size, name='dec_GRU')
-    mean_dense = tf.keras.layers.Dense(1, name='mean_dense')
-    log_sd_dense = tf.keras.layers.Dense(1, name='log_sd_dense')
+    enc_rnn = tf.nn.rnn_cell.GRUCell(enc_size, name='enc_GRU')                  
+    dec_rnn = tf.nn.rnn_cell.GRUCell(dec_size, name='dec_GRU')  
+    # enc_rnn = tf.keras.layers.GRUCell(enc_size, name='enc_GRU')
+    # dec_rnn = tf.keras.layers.GRUCell(dec_size, name='dec_GRU')
+    mean_dense = tf.keras.layers.Dense(z_size, name='mean_dense')
+    log_sd_dense = tf.keras.layers.Dense(z_size, name='log_sd_dense')
     write_dense = tf.keras.layers.Dense(*img_shape, name='write_dense')
 
-    def sampleZ(h_enc):
+    def sampleZ(h_enc, rand):
         mean = mean_dense(h_enc)
         log_sd = log_sd_dense(h_enc)
         sd = tf.keras.activations.exponential(log_sd)
@@ -43,25 +45,28 @@ def model(x_in, enc_size, dec_size, z_size, num_loops, batch_size):
         return write_dense(h_dec)
 
     LoopState = namedtuple('LoopState', 
-            ['c', 'h_enc', 'h_dec', 'z', 'mean', 'sd', 'log_sd'])
+            ['c', 'h_enc', 'h_dec', 'rand', 'z', 'mean', 'sd', 'log_sd'])
     
-    def single_loop(x, c_prev, h_enc_prev, h_dec_prev):
+    def single_loop(x, c_prev, h_enc_prev, h_dec_prev, rand):
         x_hat = x - tf.sigmoid(c_prev)
         # Read
         r  = read(x, x_hat)
         # Encode
         # Return type for GRUCell is h,[h]. First h is output, the second
         # [h] is a list of internal states to pass to the next timestep.
-        h_enc = enc_rnn(tf.concat([r, h_dec_prev], 1), [h_enc_prev])[0]
+        ## h_enc = enc_rnn(r, [h_enc_prev])[0]
+        # rnn.GRUCell doesn't have extra vector dimension for state input.
+        h_enc = enc_rnn(r, h_enc_prev)[0]
         # Sample
-        z, mean, log_sd, sd = sampleZ(h_enc)
+        z, mean, log_sd, sd = sampleZ(h_enc, rand)
         # Decode
-        h_dec = dec_rnn(z, [h_dec_prev])[0]
+        # h_dec = dec_rnn(z, [h_dec_prev])[0]
+        h_dec = dec_rnn(z, h_dec_prev)[0]
         # Write
         c = c_prev + write(h_dec)
-        return LoopState(c, h_enc, h_dec, z, mean, sd, log_sd)
+        return LoopState(c, h_enc, h_dec, rand, z, mean, sd, log_sd)
 
-    def _loss(loop_states, x_in, x_out):
+    def _loss(loop_states, x_in, x_out, z_len):
         # Reconstruction loss
         def binary_cross_entropy(target, out):
             # For numerical stability.
@@ -84,7 +89,10 @@ def model(x_in, enc_size, dec_size, z_size, num_loops, batch_size):
                     #- len(loop_states) * 0.5)
         kl_sum = tf.add_n(kl_terms)
         lz = tf.reduce_mean(kl_sum)
-        loss = lx + 0.1 * lz
+        # Try to keep the loss having the same magnitude regardless of
+        # the number of latent variables.
+        lz = lz * 1/z_len
+        loss = lx + lz
         return loss
 
     x = x_in_flat
@@ -94,19 +102,19 @@ def model(x_in, enc_size, dec_size, z_size, num_loops, batch_size):
     loop_states = []
     with tf.variable_scope('loop', reuse=tf.AUTO_REUSE):
         for l in range(num_loops):
-            state = single_loop(x, c_prev, h_enc_prev, h_dec_prev)
+            rand = tf.random.normal((batch_size,z_size), mean=0, stddev=1, name=f'sample_random_e_{l}') 
+            state = single_loop(x, c_prev, h_enc_prev, h_dec_prev, rand)
             loop_states.append(state) 
             c_prev = state.c
             # Interesting: forgetting to feed the state back into the encoder
             # by skipping the next line causes no noticeable degradation. 
             h_enc_prev = state.h_enc
-            h_dec_prev = state.h_enc
+            h_dec_prev = state.h_dec
     x_out = tf.math.sigmoid(c_prev)
-    loss_op = _loss(loop_states, x, x_out)
+    loss_op = _loss(loop_states, x, x_out, z_size)
     # Reshape back to 2D and rescale.
-    x_out = x_out * 255
     x_out = tf.reshape(x_out, [-1, x_in.shape[1], x_in.shape[2]])
-    return x_out, loss_op
+    return x_out, loss_op, loop_states
 
 
 #def create_dataset_iterator():
@@ -114,13 +122,13 @@ def model(x_in, enc_size, dec_size, z_size, num_loops, batch_size):
 #        return data.BlackWhiteShapeDataset1(img_shape=[28,28])
 
 def create_model(x_in):
-    x_out, loss = model(x_in, enc_size=256, dec_size=256, z_size=10, 
-                        num_loops=10, batch_size=BATCH_SIZE)
+    x_out, loss, _ = model(x_in, enc_size=256, dec_size=256, z_size=10, 
+                              num_loops=10, batch_size=BATCH_SIZE)
     return (x_out, loss)
     
 
 def train():
-    train_steps = 5000
+    train_steps = 10000
     ds = draw.mnist.mnist_ds('train', batch_size=BATCH_SIZE)
     iterator = tf.compat.v1.data.make_one_shot_iterator(ds)
     img_input = iterator.get_next()[0]
@@ -143,14 +151,15 @@ def train():
             if math.isnan(loss_val):
                 print(f'Step: {t}. Loss: NaN')
                 break
-            else:
-                print(f'Step: {t}. Loss: {float(loss_val)}')
             if t > 0 and t % 500 == 0:
+                print(f'Step: {t}. Loss: {float(loss_val)}')
                 (img_in, img_out) = sess.run([img_input, x_out])
                 num_print = 2
                 for i in range(num_print):
-                    cv.imwrite(f'./out/image_input_step_{t}_{i}.png', img_in[i])
-                    cv.imwrite(f'./out/image_output_step_{t}_{i}.png', img_out[i])
+                    cv.imwrite(f'./out/step_{t}_i_{i}_input.png', 
+                            img_in[i] * 255.0)
+                    cv.imwrite(f'./out/step_{t}_i_{i}_output.png', 
+                            img_out[i] * 255.0)
     
         # Save graph
         saver = tf.train.Saver()

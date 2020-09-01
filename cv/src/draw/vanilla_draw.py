@@ -245,18 +245,18 @@ def _sample(draw, enc_h, e_override=None):
     return activations
 
 
-def _draw_forward_once(draw, img_in, enc_h, dec_h, c_prev):
+def _draw_forward_once(draw, img_in, enc_h, dec_h, c_prev, e_override=None):
     """Forward run of the DRAW network."""
-    xx_hat = np.concatenate([img_in, img_in - c_prev])
+    xx_hat = np.concatenate([img_in, img_in - sigmoid(c_prev)])
     enc_h, enc_act = gru_forward(draw.enc_rnn, xx_hat, enc_h)
-    Q_act = _sample(draw, enc_h)
+    Q_act = _sample(draw, enc_h, e_override)
     dec_h, dec_act = gru_forward(draw.dec_rnn, Q_act.z, dec_h)
     c = _write(draw, dec_h, c_prev)
     activations = DrawActivation(c_prev, enc_act, Q_act, dec_act, c) 
     return activations
 
 
-def draw_forward(draw, img_in):
+def draw_forward(draw, img_in, e_overrides=None):
     """Run all loops of a DRAW network for a given input image."""
     img_in = img_in.flatten()
     canvas = np.zeros(img_in.shape)
@@ -264,7 +264,8 @@ def draw_forward(draw, img_in):
     dec_h = np.zeros(draw.dec_rnn.hidden_len)
     activations = []
     for l in range(draw.num_loops):
-        act = _draw_forward_once(draw, img_in, enc_h, dec_h, canvas)
+        e = None if not e_overrides else e_overrides[l]
+        act = _draw_forward_once(draw, img_in, enc_h, dec_h, canvas, e)
         activations.append(act)
         enc_h = act.enc.h
         dec_h = act.dec.h
@@ -349,10 +350,12 @@ def backprop_Q(dz, draw, ddraw, draw_act):
     to contain mistakes.
     """
     # Distribution loss
-    # kl_loss = draw_act.μ**2 + draw_act.σ**2 - draw_act.log_σ**2
-    dμ = 2 * draw_act.Q.μ
-    dσ = 2 * draw_act.Q.σ
-    dσ_log = 2 * np.log(draw_act.Q.σ) 
+    # kl_loss = 1/2( draw_act.μ**2 + draw_act.σ**2 - 2*draw_act.log_σ)
+    # If kl_factor is too high (1.0), then it's hard to avoid numeric errors.
+    kl_factor = 0.1
+    dμ = kl_factor * draw_act.Q.μ
+    dσ = kl_factor * draw_act.Q.σ
+    dσ_log = kl_factor * -1.0 * np.ones(draw_act.Q.σ.shape)
 
     # Image loss
     # σ
@@ -405,7 +408,7 @@ def backprop_draw(dc_linear, denc_h, ddec_h, draw, ddraw, draw_act):
     dxx_hat, denc_h_prev = backprop_gru(denc_h, draw.enc_rnn, ddraw.enc_rnn,
             draw_act.enc)
     dx_hat = np.split(dxx_hat, 2)[1]
-    dc_prev = -dx_hat
+    dc_prev = -dx_hat * d_sigmoid(draw_act.c_prev)
     return dc_prev, denc_h_prev, ddec_h_prev
 
 
@@ -459,7 +462,7 @@ def train(num_loops, final_learning_rate, steps):
     hacky experimentation with training schedules, so it never looks tidy.
     """
     # Construct a Draw object with preset settings.
-    enc_hidden_len = 128
+    enc_hidden_len = 256
     dec_hidden_len = 256
     latent_len = 10
     img_shape = [28, 28]
@@ -478,8 +481,8 @@ def train(num_loops, final_learning_rate, steps):
     # so we start 'carefully'. After the careful period, we bump the learning
     # rate up to its maximum, then descend until we reach the given lower 
     # bound (final) learning rate.
-    careful_boost = 100
-    full_boost = 1000
+    careful_boost = 500
+    full_boost = 8000
     lr = final_learning_rate  * careful_boost
     for s in range(steps):
         if s == warmup_steps:
